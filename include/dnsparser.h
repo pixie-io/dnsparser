@@ -38,7 +38,7 @@ public:
    * @param payload Pointer to first byte of (UDP) payload for DNS datagram.
    * @param payloadLen Length in bytes of payload.
    */
-  virtual int parse(char *payload, int payloadLen)=0;
+  virtual int parse(const char *payload, int payloadLen)=0;
 
   virtual ~DnsParser() {};
 };

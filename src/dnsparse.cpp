@@ -15,7 +15,7 @@ public:
   ~DnsParserImpl() = default;
 
   // @implements
-  virtual int parse(char *payload, int payloadLen);
+  virtual int parse(const char *payload, int payloadLen);
 
   DnsParserImpl(DnsParserListener* listener, bool isPathEnabled, bool ignoreCnames) : _listener(listener), _ignoreCnames(ignoreCnames) {
     _cnameTracker = CnameTrackerNew(isPathEnabled);
@@ -23,7 +23,7 @@ public:
 
 private:
 
-  int    dnsReadAnswers(char *payload, int payloadLen, char *ptr, int remaining, int numAnswers);
+  int    dnsReadAnswers(const char *payload, int payloadLen, const char *ptr, int remaining, int numAnswers);
 
   DnsParserListener* _listener;
   bool               _ignoreCnames;
@@ -59,10 +59,10 @@ struct dns_hdr_t
 // skip_name - jump over name
 // @returns -1 on error, otherwise length of name
 //-------------------------------------------------------------------------
-int skip_name(char *ptr, int remaining)
+int skip_name(const char *ptr, int remaining)
 {
-  char *p = ptr;
-  char *end = p + remaining;
+  const char *p = ptr;
+  const char *end = p + remaining;
   while (p < end) {
     int dotLen = *p;
     if ((dotLen & 0xc0) == 0xc0) {
@@ -81,10 +81,10 @@ int skip_name(char *ptr, int remaining)
 // @returns -1 on error
 // @returns Number of bytes taken up by query records
 //-------------------------------------------------------------------------
-int dnsReadQueries(char *payload, int payloadLen, char *ptr, int remaining, int numQueries)
+int dnsReadQueries(const char *payload, int payloadLen, const char *ptr, int remaining, int numQueries)
 {
   int rem = remaining;
-  char *p = ptr;
+  const char *p = ptr;
   while(numQueries > 0)
   {
     int nameLen = skip_name(p, remaining);
@@ -105,16 +105,16 @@ int dnsReadQueries(char *payload, int payloadLen, char *ptr, int remaining, int 
 // @returns Length in bytes of retstr on exit.
 // @returns -1 on error.
 //-------------------------------------------------------------------------
-static int dnsReadName(string &retstr /* out */, uint16_t nameOffset, char *payload, int payloadLen)
+static int dnsReadName(string &retstr /* out */, uint16_t nameOffset, const char *payload, int payloadLen)
 {
   if (nameOffset == 0 || nameOffset >= payloadLen) return -1;
 
   char tmp[MAX_STR_LEN];
   char *dest = tmp;
 
-  char *pstart = payload + nameOffset;
-  char *p = pstart;
-  char *end = payload + payloadLen;
+  const char *pstart = payload + nameOffset;
+  const char *p = pstart;
+  const char *end = payload + payloadLen;
   while (p < end) {
     uint16_t dotLen = *p;
     if ((dotLen & 0xc0) == 0xc0) {
@@ -181,7 +181,7 @@ struct dns_ans_t
 // @returns -1 on error.
 // @returns Length in bytes of response record block.
 //-------------------------------------------------------------------------
-int DnsParserImpl::dnsReadAnswers(char *payload, int payloadLen, char *ptr, int remaining, int numAnswers)
+int DnsParserImpl::dnsReadAnswers(const char *payload, int payloadLen, const char *ptr, int remaining, int numAnswers)
 {
   _cnameTracker->clear();
   string firstName;
@@ -193,7 +193,7 @@ int DnsParserImpl::dnsReadAnswers(char *payload, int payloadLen, char *ptr, int 
 
     if ((remaining - len) <= (int) sizeof(ans)) return -1;
 
-    char *p = ptr + len;
+    const char *p = ptr + len;
     int ptrOffset = (int)(p - payload);
 
     ans._nm = U16S(p,0);
@@ -295,7 +295,7 @@ int DnsParserImpl::dnsReadAnswers(char *payload, int payloadLen, char *ptr, int 
 // @param payload    Pointer to first byte in payload.
 // @param payloadLen Length in bytes of payload.
 //-------------------------------------------------------------------------
-int DnsParserImpl::parse(char *payload, int payloadLen)
+int DnsParserImpl::parse(const char *payload, int payloadLen)
 {
   dns_hdr_t hdr;
   if (payloadLen < (int)sizeof(hdr)) return -1;

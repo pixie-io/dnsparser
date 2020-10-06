@@ -84,7 +84,7 @@ private:
 //-------------------------------------------------------------------------
 // CnameTrackerNew - factory
 //-------------------------------------------------------------------------
-CnameTracker* CnameTrackerNew(bool isPathEnabled)
+std::unique_ptr<CnameTracker> CnameTrackerNew(bool isPathEnabled)
 {
-  return new CnameTrackerImpl(isPathEnabled);
+  return std::unique_ptr<CnameTracker>(new CnameTrackerImpl(isPathEnabled));
 }

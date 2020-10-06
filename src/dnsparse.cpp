@@ -12,6 +12,7 @@ using namespace std;
 class DnsParserImpl : public DnsParser
 {
 public:
+  ~DnsParserImpl() = default;
 
   // @implements
   virtual int parse(char *payload, int payloadLen);
@@ -26,14 +27,14 @@ private:
 
   DnsParserListener* _listener;
   bool               _ignoreCnames;
-  CnameTracker*      _cnameTracker;
+  std::unique_ptr<CnameTracker> _cnameTracker;
 };
 
 //-------------------------------------------------------------------------
 // DnsParserNew - return new instance of DnsParserImpl
 //-------------------------------------------------------------------------
-DnsParser* DnsParserNew(DnsParserListener* listener, bool isPathEnabled, bool ignoreCnames) {
-  return new DnsParserImpl(listener, isPathEnabled, ignoreCnames);
+std::unique_ptr<DnsParser> DnsParserNew(DnsParserListener* listener, bool isPathEnabled, bool ignoreCnames) {
+  return std::unique_ptr<DnsParser>(new DnsParserImpl(listener, isPathEnabled, ignoreCnames));
 }
 
 // Reads a uint16_t and byte-swaps ntohs()

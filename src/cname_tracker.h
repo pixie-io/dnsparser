@@ -2,6 +2,7 @@
 #define _CNAME_TRACKER_H_
 
 #include <string>
+#include <memory>
 
 struct name_path_tuple {
   std::string name;       // top-level name. e.g. 'p.typekit.net'
@@ -25,6 +26,6 @@ public:
  * If isPathEnabled == false, getWithPath() will return values with empty path,
  * as a slight performance enhancement.
  */
-CnameTracker* CnameTrackerNew(bool isPathEnabled);
+std::unique_ptr<CnameTracker> CnameTrackerNew(bool isPathEnabled);
 
 #endif // _CNAME_TRACKER_H_

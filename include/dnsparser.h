@@ -4,6 +4,7 @@
 #define _NM_DNS_H_
 
 #include <string>
+#include <memory>
 
 #ifdef WIN32
 #include <Ws2tcpip.h>   // in_addr
@@ -38,6 +39,8 @@ public:
    * @param payloadLen Length in bytes of payload.
    */
   virtual int parse(char *payload, int payloadLen)=0;
+
+  virtual ~DnsParser() {};
 };
 
 /**
@@ -51,6 +54,6 @@ public:
  *                       domains are intermingled in same datagram.
  *                       About a 400% speedup.
  */
-DnsParser* DnsParserNew(DnsParserListener *listener, bool isPathEnabled = true, bool ignoreCnames = false);
+std::unique_ptr<DnsParser> DnsParserNew(DnsParserListener *listener, bool isPathEnabled = true, bool ignoreCnames = false);
 
 #endif // _NM_DNS_H_

@@ -324,7 +324,10 @@ int DnsParserImpl::parse(const char *payload, int payloadLen)
       if ((payloadLen - recordOffset) < 0) return -1;
     }
     if (hdr._numAnswers > 0) {
-      /* int size = */ dnsReadAnswers(payload, payloadLen, payload + recordOffset, payloadLen - recordOffset, hdr._numAnswers);
+      int size = dnsReadAnswers(payload, payloadLen, payload + recordOffset, payloadLen - recordOffset, hdr._numAnswers);
+      if (size < 0) return -1; // error
+      recordOffset += size;
+      if ((payloadLen - recordOffset) < 0) return -1;
     }
     return 0;
   }

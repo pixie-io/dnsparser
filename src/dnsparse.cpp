@@ -127,7 +127,7 @@ static int dnsReadName(string &retstr /* out */, uint16_t nameOffset, char *payl
       retstr += '.' + subStr;
       return retstr.length();
     }
-    if (dotLen < 0 || ((p + dotLen) >= end)) return -1;
+    if (((p + dotLen) >= end)) return -1;
     if (dotLen == 0) {
       if (p > pstart)
       retstr = string(tmp,(int)(p - pstart -1));

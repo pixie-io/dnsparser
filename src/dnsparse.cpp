@@ -23,6 +23,7 @@ public:
 
 private:
 
+  int    dnsReadQueries(const char *payload, int payloadLen, const char *ptr, int remaining, int numQueries, bool emit);
   int    dnsReadAnswers(const char *payload, int payloadLen, const char *ptr, int remaining, int numAnswers);
 
   DnsParserListener* _listener;
@@ -66,7 +67,7 @@ int skip_name(const char *ptr, int remaining)
   while (p < end) {
     int dotLen = *p;
     if ((dotLen & 0xc0) == 0xc0) {
-      printf("skip_name not linear!\n");
+      //printf("skip_name not linear!\n");
     }
     if (dotLen < 0 || dotLen >= remaining) return -1;
     if (dotLen == 0) return (int)(p - ptr + 1);
@@ -74,27 +75,6 @@ int skip_name(const char *ptr, int remaining)
     remaining -= dotLen + 1;
   }
   return -1;
-}
-
-//-------------------------------------------------------------------------
-// Read query records
-// @returns -1 on error
-// @returns Number of bytes taken up by query records
-//-------------------------------------------------------------------------
-int dnsReadQueries(const char *payload, int payloadLen, const char *ptr, int remaining, int numQueries)
-{
-  int rem = remaining;
-  const char *p = ptr;
-  while(numQueries > 0)
-  {
-    int nameLen = skip_name(p, remaining);
-    if (nameLen <= 0) return -1;
-    remaining -= nameLen + 4;
-    p += nameLen + 4;
-    if (remaining < 0) return -1;
-    numQueries --;
-  }
-  return (rem - remaining);
 }
 
 #define MAX_STR_LEN 128
@@ -161,6 +141,36 @@ struct dns_ans_t
   uint16_t _ttl2;
   uint16_t _datalen;
 };
+
+//-------------------------------------------------------------------------
+// Read query records
+// @returns -1 on error
+// @returns Number of bytes taken up by query records
+//-------------------------------------------------------------------------
+int DnsParserImpl::dnsReadQueries(const char *payload, int payloadLen, const char *ptr, int remaining, int numQueries, bool emit)
+{
+  int rem = remaining;
+  const char *p = ptr;
+  while(numQueries > 0)
+  {
+    int ptrOffset = (int)(p - payload);
+
+    // Hacky: dnsReadName and skip_name have duplication of effort.
+    std::string name;
+    dnsReadName(name, ptrOffset, payload, payloadLen);
+    int nameLen = skip_name(p, remaining);
+    if (nameLen <= 0) return -1;
+
+    if (0L != _listener && emit)
+      _listener->onDnsRec(in_addr{}, name, "");
+
+    remaining -= nameLen + 4;
+    p += nameLen + 4;
+    if (remaining < 0) return -1;
+    numQueries --;
+  }
+  return (rem - remaining);
+}
 
 #define DNS_ANS_TYPE_CNAME 5
 #define DNS_ANS_TYPE_A     1  // ipv4 address
@@ -307,18 +317,19 @@ int DnsParserImpl::parse(const char *payload, int payloadLen)
 
   if (DNS_FLAG_OPCODE(hdr._flags) != 0) return -1; // not a standard query.
 
-  if ((hdr._flags & DNS_FLAG_RESPONSE) == 0) return 0;
+  bool request = ((hdr._flags & DNS_FLAG_RESPONSE) == 0);
+  //if ((hdr._flags & DNS_FLAG_RESPONSE) == 0) return 0;
 
   {
     // response
 
-    if (hdr._numAnswers <= 0) return 0; // only care about answers
+    //if (hdr._numAnswers <= 0) return 0; // only care about answers
 
     if (hdr._numQueries > 4 || hdr._numAnswers > 20) return -1; // unreasonable?
 
     int recordOffset = sizeof(hdr);
     if (hdr._numQueries > 0) {
-      int size = dnsReadQueries(payload, payloadLen, payload + recordOffset, payloadLen - recordOffset, hdr._numQueries);
+      int size = dnsReadQueries(payload, payloadLen, payload + recordOffset, payloadLen - recordOffset, hdr._numQueries, request);
       if (size < 0) return -1; // error
       recordOffset += size;
       if ((payloadLen - recordOffset) < 0) return -1;

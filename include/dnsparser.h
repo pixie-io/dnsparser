@@ -20,12 +20,12 @@ class DnsParserListener
 {
 public:
   /**
-   * @param addr Binary IPV4 or IPV6 address in network order.
    * @param name Domain name requested.
-   * @param path Domain name and chain of CNAME entries separated by "||"
+   * @param addr Binary IPV4 or IPV6 address in network order.
    */
-  virtual void onDnsRec(in_addr addr, std::string name, std::string path) = 0;
-  virtual void onDnsRec(in6_addr addr, std::string name, std::string path) = 0;
+  virtual void onDnsRec(std::string name, in_addr addr) = 0;
+  virtual void onDnsRec(std::string name, in6_addr addr) = 0;
+  virtual void onDnsRec(std::string name, std::string cname) = 0;
 };
 
 class DnsParser
@@ -47,13 +47,7 @@ public:
  * Create a return a new instance of DnsParser and register listener.
  *
  * @param listener       For callbacks
- * @params isPathEnabled If false, the paths will always be empty in callbacks.
- *                       About a 30% speedup.
- * @params ignoreCnames  If true, paths will be empty, and no CNAMES parsed.
- *                       May lead to error if ANSWER records for different
- *                       domains are intermingled in same datagram.
- *                       About a 400% speedup.
  */
-std::unique_ptr<DnsParser> DnsParserNew(DnsParserListener *listener, bool isPathEnabled = true, bool ignoreCnames = false);
+std::unique_ptr<DnsParser> DnsParserNew(DnsParserListener *listener);
 
 #endif // _NM_DNS_H_

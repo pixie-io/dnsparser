@@ -17,9 +17,7 @@ public:
   // @implements
   virtual int parse(const char *payload, int payloadLen);
 
-  DnsParserImpl(DnsParserListener* listener, bool isPathEnabled, bool ignoreCnames) : _listener(listener), _ignoreCnames(ignoreCnames) {
-    _cnameTracker = CnameTrackerNew(isPathEnabled);
-  }
+  DnsParserImpl(DnsParserListener* listener) : _listener(listener) {}
 
 private:
 
@@ -27,15 +25,13 @@ private:
   int    dnsReadAnswers(const char *payload, int payloadLen, const char *ptr, int remaining, int numAnswers);
 
   DnsParserListener* _listener;
-  bool               _ignoreCnames;
-  std::unique_ptr<CnameTracker> _cnameTracker;
 };
 
 //-------------------------------------------------------------------------
 // DnsParserNew - return new instance of DnsParserImpl
 //-------------------------------------------------------------------------
-std::unique_ptr<DnsParser> DnsParserNew(DnsParserListener* listener, bool isPathEnabled, bool ignoreCnames) {
-  return std::unique_ptr<DnsParser>(new DnsParserImpl(listener, isPathEnabled, ignoreCnames));
+std::unique_ptr<DnsParser> DnsParserNew(DnsParserListener* listener) {
+  return std::unique_ptr<DnsParser>(new DnsParserImpl(listener));
 }
 
 // Reads a uint16_t and byte-swaps ntohs()
@@ -132,6 +128,13 @@ static int dnsReadName(string &retstr /* out */, uint16_t nameOffset, const char
   return -1;
 }
 
+struct dns_query_t
+{
+  uint16_t _nm;
+  uint16_t _type;
+  uint16_t _cls;
+};
+
 struct dns_ans_t
 {
   uint16_t _nm;
@@ -142,6 +145,11 @@ struct dns_ans_t
   uint16_t _datalen;
 };
 
+#define DNS_RECORD_TYPE_CNAME 5
+#define DNS_RECORD_TYPE_A     1  // ipv4 address
+#define DNS_RECORD_TYPE_AAAA 28  // ipv6
+#define DNS_RECORD_CLASS_IN 1
+
 //-------------------------------------------------------------------------
 // Read query records
 // @returns -1 on error
@@ -149,33 +157,57 @@ struct dns_ans_t
 //-------------------------------------------------------------------------
 int DnsParserImpl::dnsReadQueries(const char *payload, int payloadLen, const char *ptr, int remaining, int numQueries, bool emit)
 {
-  int rem = remaining;
-  const char *p = ptr;
+  emit = emit && (0L != _listener);
+
+  int len = 0;
   while(numQueries > 0)
   {
+    dns_query_t query;
+
+    if ((remaining - len) <= (int) sizeof(query)) return -1;
+
+    const char *p = ptr + len;
     int ptrOffset = (int)(p - payload);
 
-    // Hacky: dnsReadName and skip_name have duplication of effort.
-    std::string name;
-    dnsReadName(name, ptrOffset, payload, payloadLen);
-    int nameLen = skip_name(p, remaining);
-    if (nameLen <= 0) return -1;
+    query._nm = U16S(p,0);
 
-    if (0L != _listener && emit)
-      _listener->onDnsRec(in_addr{}, name, "");
+    string name;
+    int nameLen = 0;
+    int nameOffset = 0;
+    int fieldsOffset = 0;
 
-    remaining -= nameLen + 4;
-    p += nameLen + 4;
-    if (remaining < 0) return -1;
-    numQueries --;
+    if ((query._nm & 0xc000) == 0xc000) {
+      nameOffset = query._nm & 0x3fff;
+      nameLen = dnsReadName(name, nameOffset, payload, payloadLen);
+      fieldsOffset=0;
+    } else {
+      nameOffset = ptrOffset;
+      nameLen = dnsReadName(name, nameOffset, payload, payloadLen);
+      fieldsOffset=nameLen;
+    }
+
+    if (nameLen<=0) return -1;
+
+    query._type = U16S(p,fieldsOffset+2);
+    query._cls = U16S(p,fieldsOffset+4);
+
+    switch (query._type) {
+      case DNS_RECORD_TYPE_A:
+        if (emit)
+          _listener->onDnsRec(name, in_addr{});
+        break;
+      case DNS_RECORD_TYPE_AAAA:
+        if (emit)
+          _listener->onDnsRec(name, in6_addr{});
+        break;
+    }
+
+    len += sizeof(query) + fieldsOffset;
+
+    numQueries--;
   }
-  return (rem - remaining);
+  return len;
 }
-
-#define DNS_ANS_TYPE_CNAME 5
-#define DNS_ANS_TYPE_A     1  // ipv4 address
-#define DNS_ANS_TYPE_AAAA 28  // ipv6
-#define DNS_ANS_CLASS_IN 1
 
 //-------------------------------------------------------------------------
 // dnsReadAnswers
@@ -193,7 +225,6 @@ int DnsParserImpl::dnsReadQueries(const char *payload, int payloadLen, const cha
 //-------------------------------------------------------------------------
 int DnsParserImpl::dnsReadAnswers(const char *payload, int payloadLen, const char *ptr, int remaining, int numAnswers)
 {
-  _cnameTracker->clear();
   string firstName;
 
   int len = 0;
@@ -241,48 +272,34 @@ int DnsParserImpl::dnsReadAnswers(const char *payload, int payloadLen, const cha
     // read data section
 
     switch (ans._type) {
-      case DNS_ANS_TYPE_CNAME:
+      case DNS_RECORD_TYPE_CNAME:
       {
-        if (_ignoreCnames) break;
         string cname;
         dnsReadName(cname, ptrOffset + sizeof(ans), payload, payloadLen);
-        if (cname.length() > 0 && cname != name)  // avoid infinite recursion
-          _cnameTracker->addCname(name, cname);
+
+        if (0L != _listener) {
+          _listener->onDnsRec(name, cname);
+        }
 
         break;
       }
-      case DNS_ANS_TYPE_A:
+      case DNS_RECORD_TYPE_A:
       {
         in_addr addr;
         memcpy(&addr, p+sizeof(ans)+fieldsOffset, sizeof(addr));
 
-        if (_ignoreCnames) {
-          if (0L != _listener) _listener->onDnsRec(addr, firstName, "");
-          break;
-        }
-
-        name_path_tuple npt = _cnameTracker->getWithPath(name);
-
         if (0L != _listener)
-          _listener->onDnsRec(addr, npt.name, npt.path);
+          _listener->onDnsRec(name, addr);
 
         break;
       }
-      case DNS_ANS_TYPE_AAAA:
+      case DNS_RECORD_TYPE_AAAA:
       {
         in6_addr addr;
         memcpy(&addr, p+sizeof(ans)+fieldsOffset, sizeof(addr));
 
-        if (_ignoreCnames) {
-          if (0L != _listener)
-            _listener->onDnsRec(addr, firstName, "");
-          break;
-        }
-
-        name_path_tuple npt = _cnameTracker->getWithPath(name);
-
         if (0L != _listener)
-          _listener->onDnsRec(addr, npt.name, npt.path);
+          _listener->onDnsRec(name, addr);
         break;
       }
       default:
@@ -318,28 +335,23 @@ int DnsParserImpl::parse(const char *payload, int payloadLen)
   if (DNS_FLAG_OPCODE(hdr._flags) != 0) return -1; // not a standard query.
 
   bool request = ((hdr._flags & DNS_FLAG_RESPONSE) == 0);
-  //if ((hdr._flags & DNS_FLAG_RESPONSE) == 0) return 0;
 
-  {
-    // response
+  if (hdr._numQueries > 4 || hdr._numAnswers > 20) return -1; // unreasonable?
 
-    //if (hdr._numAnswers <= 0) return 0; // only care about answers
-
-    if (hdr._numQueries > 4 || hdr._numAnswers > 20) return -1; // unreasonable?
-
-    int recordOffset = sizeof(hdr);
-    if (hdr._numQueries > 0) {
-      int size = dnsReadQueries(payload, payloadLen, payload + recordOffset, payloadLen - recordOffset, hdr._numQueries, request);
-      if (size < 0) return -1; // error
-      recordOffset += size;
-      if ((payloadLen - recordOffset) < 0) return -1;
-    }
-    if (hdr._numAnswers > 0) {
-      int size = dnsReadAnswers(payload, payloadLen, payload + recordOffset, payloadLen - recordOffset, hdr._numAnswers);
-      if (size < 0) return -1; // error
-      recordOffset += size;
-      if ((payloadLen - recordOffset) < 0) return -1;
-    }
-    return 0;
+  int recordOffset = sizeof(hdr);
+  if (hdr._numQueries > 0) {
+    // Don't emit queries when parsing a response. It's repeated in the response anyways.
+    bool emit_queries = request;
+    int size = dnsReadQueries(payload, payloadLen, payload + recordOffset, payloadLen - recordOffset, hdr._numQueries, emit_queries);
+    if (size < 0) return -1; // error
+    recordOffset += size;
+    if ((payloadLen - recordOffset) < 0) return -1;
   }
+  if (hdr._numAnswers > 0) {
+    int size = dnsReadAnswers(payload, payloadLen, payload + recordOffset, payloadLen - recordOffset, hdr._numAnswers);
+    if (size < 0) return -1; // error
+    recordOffset += size;
+    if ((payloadLen - recordOffset) < 0) return -1;
+  }
+  return 0;
 }
